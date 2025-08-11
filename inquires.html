@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Inquiries</title>
+<style>
+  :root{
+    --primary:#2d89ef;
+    --card:#ffffff;
+    --bg:#f3f6fb;
+    --muted:#6b7280;
+    --success:#2e7d32;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:Inter, Arial, sans-serif; background:var(--bg); color:#111;
+  }
+  header{
+    background:linear-gradient(90deg,var(--primary),#1b6fd0);
+    color:white; padding:22px 16px; text-align:center; font-size:20px;
+  }
+  .wrap{
+    max-width:900px; margin:20px auto; padding:16px;
+  }
+  .row{display:flex; gap:16px; flex-wrap:wrap;}
+  .card{
+    background:var(--card); border-radius:12px; padding:16px; box-shadow:0 6px 18px rgba(15,23,42,0.06);
+  }
+  .left{flex:1 1 320px; min-width:280px;}
+  .right{flex:1 1 520px; min-width:300px;}
+  label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+  input[type="text"], input[type="password"], textarea{
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid #e6e9ee; font-size:14px;
+    background:#fbfdff; resize:vertical;
+  }
+  textarea{min-height:110px}
+  .btn{
+    display:inline-block; background:var(--primary); color:white; padding:10px 14px; border-radius:8px;
+    border:none; cursor:pointer; font-weight:600; margin-top:10px;
+  }
+  .btn.secondary{background:#6b7280}
+  h2{margin:0 0 8px 0; color:#123}
+  .meta{font-size:13px; color:var(--muted); margin-bottom:12px}
+  #questionsList{margin-top:10px}
+  .q-card{background:#fff; border-radius:10px; padding:14px; margin-bottom:12px; border:1px solid #eef3fb}
+  .q-head{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;}
+  .q-name{font-weight:700; color:var(--primary)}
+  .q-text{margin:8px 0 0 0; color:#0b1220; flex:1 1 auto; min-width:150px;}
+  .reply{background:#f2fbf6; border-left:4px solid var(--success); padding:10px; margin-top:10px; border-radius:8px; color:var(--success)}
+  .reply-box{margin-top:10px}
+  .small{font-size:12px; color:var(--muted)}
+  .admin-badge{display:inline-block; background:#0b6; color:#fff; padding:4px 8px; border-radius:6px; font-size:12px}
+  .q-btns button {
+    margin-left:6px;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  @media (max-width:720px){
+    .row{flex-direction:column}
+    .q-head{flex-direction:column; align-items:flex-start;}
+  }
+</style>
+</head>
+<body>
+
+<header>💬 Inquiries — Ask & Admin Replies</header>
+
+<div class="wrap">
+  <div class="row">
+    <!-- left: ask + admin login -->
+    <div class="card left">
+      <h2>Ask a question</h2>
+      <p class="meta">Anyone can post a question. Admin only can reply.</p>
+
+      <label for="name">Your name</label>
+      <input id="name" type="text" placeholder="Your name">
+
+      <label for="question">Question</label>
+      <textarea id="question" placeholder="Write your question..."></textarea>
+
+      <button id="sendQ" class="btn">Send Question</button>
+
+      <hr style="margin:18px 0;border:none;border-top:1px solid #eef4fb">
+
+      <h2>Admin login</h2>
+      <p class="meta">Enter admin password to enable reply boxes.</p>
+
+      <label for="adminPassword">Admin password</label>
+      <input id="adminPassword" type="password" placeholder="Admin password">
+
+      <div style="display:flex; gap:10px; margin-top:10px">
+        <button id="adminLoginBtn" class="btn">Login as Admin</button>
+        <button id="adminLogoutBtn" class="btn secondary" style="display:none">Logout</button>
+      </div>
+
+    
+    </div>
+
+    <!-- right: questions list -->
+    <div class="card right">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>Questions</h2>
+        <div id="adminStatus" class="small"></div>
+      </div>
+      <p class="meta">Latest questions appear below. Replies show for everyone.</p>
+
+      <div id="questionsList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase + App logic (module) -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js";
+  import {
+    getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+    query, orderBy, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDWYhQfNxAlbrEvlma6EMu9rIKIXcENRMg",
+    authDomain: "inquires-4660b.firebaseapp.com",
+    projectId: "inquires-4660b",
+    storageBucket: "inquires-4660b.firebasestorage.app",
+    messagingSenderId: "1069139979944",
+    appId: "1:1069139979944:web:17bcfdbebfa89b33d59c9d",
+    measurementId: "G-SK0BMMCL8H"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  let analytics;
+  try { analytics = getAnalytics(app); } catch(e){ /* ignore */ }
+  const db = getFirestore(app);
+
+  const nameInput = document.getElementById('name');
+  const questionInput = document.getElementById('question');
+  const sendQBtn = document.getElementById('sendQ');
+  const questionsList = document.getElementById('questionsList');
+  const adminPwdInput = document.getElementById('adminPassword');
+  const adminLoginBtn = document.getElementById('adminLoginBtn');
+  const adminLogoutBtn = document.getElementById('adminLogoutBtn');
+  const adminStatus = document.getElementById('adminStatus');
+
+  let isAdmin = false;
+  const ADMIN_PASSWORD = "mam88n";
+
+  window.isAdmin = () => isAdmin;
+
+  async function sendQuestion() {
+    const name = nameInput.value.trim();
+    const q = questionInput.value.trim();
+    if(!name || !q){ alert('Please fill name and question'); return; }
+    try {
+      await addDoc(collection(db, 'questions'), {
+        name: name,
+        question: q,
+        reply: '',
+        createdAt: serverTimestamp()
+      });
+      nameInput.value = '';
+      questionInput.value = '';
+    } catch(err){
+      console.error('Error adding question', err);
+      alert('Error sending question — check console');
+    }
+  }
+
+  function loginAdmin() {
+    const pass = adminPwdInput.value || '';
+    if(pass === ADMIN_PASSWORD){
+      isAdmin = true;
+      adminStatus.innerHTML = '<span class="admin-badge">Admin</span>';
+      adminLoginBtn.style.display = 'none';
+      adminLogoutBtn.style.display = 'inline-block';
+      adminPwdInput.value = '';
+      renderAll();
+    } else {
+      alert('Wrong password!');
+    }
+  }
+  function logoutAdmin(){
+    isAdmin = false;
+    adminStatus.innerHTML = '';
+    adminLoginBtn.style.display = 'inline-block';
+    adminLogoutBtn.style.display = 'none';
+    renderAll();
+  }
+
+  sendQBtn.addEventListener('click', sendQuestion);
+  adminLoginBtn.addEventListener('click', loginAdmin);
+  adminLogoutBtn.addEventListener('click', logoutAdmin);
+
+  const qRef = collection(db, 'questions');
+  const q = query(qRef, orderBy('createdAt', 'desc'));
+  let currentSnapshot = [];
+
+  onSnapshot(q, (snapshot) => {
+    currentSnapshot = snapshot.docs;
+    renderAll();
+  }, (err) => {
+    console.error('onSnapshot error', err);
+  });
+
+  function renderAll(){
+    questionsList.innerHTML = '';
+    if(!currentSnapshot || currentSnapshot.length === 0){
+      questionsList.innerHTML = '<p class="small">No questions yet.</p>';
+      return;
+    }
+
+    currentSnapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      const id = docSnap.id;
+      const card = document.createElement('div');
+      card.className = 'q-card';
+      const name = data.name || 'Anonymous';
+      const text = data.question || '';
+      const reply = data.reply || '';
+
+      const head = document.createElement('div');
+      head.className = 'q-head';
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'q-name';
+      nameEl.textContent = name;
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'small';
+
+      // زر حذف السؤال (Admin only)
+      if(isAdmin){
+        const btnsDiv = document.createElement('div');
+        btnsDiv.className = 'q-btns';
+
+        const delQBtn = document.createElement('button');
+        delQBtn.textContent = 'Delete';
+        delQBtn.className = 'btn secondary';
+        delQBtn.style.fontSize = '12px';
+        delQBtn.style.padding = '4px 8px';
+        delQBtn.addEventListener('click', async () => {
+          if(confirm('Are you sure to delete this question?')){
+            try{
+              await deleteDoc(doc(db, 'questions', id));
+            } catch(e){
+              console.error(e);
+              alert('Could not delete question — check console');
+            }
+          }
+        });
+        btnsDiv.appendChild(delQBtn);
+        head.appendChild(btnsDiv);
+      }
+
+      head.appendChild(nameEl);
+      head.appendChild(timeEl);
+
+      const qText = document.createElement('div');
+      qText.className = 'q-text';
+      qText.innerHTML = escapeHtml(text);
+
+      card.appendChild(head);
+      card.appendChild(qText);
+
+      if(reply){
+        const replyDiv = document.createElement('div');
+        replyDiv.className = 'reply';
+
+        const replyContent = document.createElement('div');
+        replyContent.innerHTML = '<strong>Admin:</strong> ' + escapeHtml(reply);
+        replyDiv.appendChild(replyContent);
+
+        if(isAdmin){
+          const editBtn = document.createElement('button');
+          editBtn.textContent = 'Edit';
+          editBtn.className = 'btn secondary';
+          editBtn.style.fontSize = '12px';
+          editBtn.style.padding = '4px 8px';
+          editBtn.style.marginRight = '6px';
+
+          const delReplyBtn = document.createElement('button');
+          delReplyBtn.textContent = 'Delete Reply';
+          delReplyBtn.className = 'btn secondary';
+          delReplyBtn.style.fontSize = '12px';
+          delReplyBtn.style.padding = '4px 8px';
+
+          replyDiv.appendChild(editBtn);
+          replyDiv.appendChild(delReplyBtn);
+
+          const editBox = document.createElement('textarea');
+          editBox.style.width = '100%';
+          editBox.style.minHeight = '60px';
+          editBox.style.marginTop = '8px';
+          editBox.value = reply;
+          editBox.style.display = 'none';
+
+          const saveEditBtn = document.createElement('button');
+          saveEditBtn.textContent = 'Save Edit';
+          saveEditBtn.className = 'btn';
+          saveEditBtn.style.marginTop = '8px';
+          saveEditBtn.style.display = 'none';
+
+          replyDiv.appendChild(editBox);
+          replyDiv.appendChild(saveEditBtn);
+
+          editBtn.addEventListener('click', () => {
+            editBox.style.display = 'block';
+            saveEditBtn.style.display = 'inline-block';
+            editBtn.style.display = 'none';
+          });
+
+          saveEditBtn.addEventListener('click', async () => {
+            const newReply = editBox.value.trim();
+            if(!newReply){
+              alert('Reply cannot be empty.');
+              return;
+            }
+            try {
+              await updateDoc(doc(db, 'questions', id), { reply: newReply });
+              editBox.style.display = 'none';
+              saveEditBtn.style.display = 'none';
+              editBtn.style.display = 'inline-block';
+            } catch(err){
+              console.error('updateDoc error', err);
+              alert('Could not update reply — check console');
+            }
+          });
+
+          delReplyBtn.addEventListener('click', async () => {
+            if(confirm('Are you sure to delete this reply?')){
+              try {
+                await updateDoc(doc(db, 'questions', id), { reply: '' });
+              } catch(err){
+                console.error('delete reply error', err);
+                alert('Could not delete reply — check console');
+              }
+            }
+          });
+        }
+
+        card.appendChild(replyDiv);
+      }
+
+      if(isAdmin && !reply){
+        const boxDiv = document.createElement('div');
+        boxDiv.className = 'reply-box';
+        const ta = document.createElement('textarea');
+        ta.placeholder = 'Write a reply...';
+        ta.style.width = '100%';
+        ta.style.minHeight = '80px';
+        ta.style.marginTop = '8px';
+
+        const sendBtn = document.createElement('button');
+        sendBtn.className = 'btn';
+        sendBtn.textContent = 'Send Reply';
+        sendBtn.style.marginTop = '8px';
+
+        sendBtn.addEventListener('click', async () => {
+          const val = ta.value.trim();
+          if(!val){ alert('Please type a reply'); return; }
+          try {
+            await updateDoc(doc(db, 'questions', id), { reply: val });
+          } catch(err){
+            console.error('updateDoc error', err);
+            alert('Could not send reply — check console');
+          }
+        });
+
+        boxDiv.appendChild(ta);
+        boxDiv.appendChild(sendBtn);
+        card.appendChild(boxDiv);
+      }
+
+      questionsList.appendChild(card);
+    });
+  }
+
+  function escapeHtml(str){
+    if(!str) return '';
+    return str
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#039;')
+      .replace(/\n/g, '<br/>');
+  }
+
+  renderAll();
+
+  window._firebase = { app, db };
+  window.loginAdmin = loginAdmin;
+  window.logoutAdmin = logoutAdmin;
+  window.sendQuestion = sendQuestion;
+</script>
+
+</body>
+</html>
